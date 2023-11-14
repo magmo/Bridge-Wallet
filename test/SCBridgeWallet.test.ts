@@ -255,98 +255,6 @@ describe("SCBridgeWallet", function () {
 
       expect(await nitroSCW.getStatus()).to.equal(2);
     });
-    it("Should raise a challenge via crossChain call", async function () {
-      const { owner, intermediary, nitroSCW, entrypoint, entrypointAddress } =
-        await deploySCBridgeWallet();
-
-      const n = await ethers.provider.getNetwork();
-
-      const deployer = await hre.ethers.getContractFactory("SCBridgeWallet");
-
-      const payeeSCW = await deployer.deploy(
-        ethers.Wallet.createRandom(),
-        intermediary,
-        entrypoint,
-      );
-
-      const state: StateStruct = {
-        owner: owner.address,
-        intermediary: intermediary.address,
-        turnNum: 1,
-        intermediaryBalance: 0,
-        htlcs: [
-          {
-            amount: 0,
-            to: Participant.Intermediary,
-            hashLock: ethers.keccak256(ethers.toUtf8Bytes("secret")),
-            timelock: (await getBlockTimestamp()) + TIMELOCK_DELAY,
-          },
-        ],
-      };
-
-      const executeInfo: ExecuteChainInfoStruct = {
-        chainId: 0,
-        entrypoint: entrypointAddress,
-        dest: await payeeSCW.getAddress(),
-        value: ethers.parseEther("0.5"),
-        callData: "0x",
-        owner: owner.address,
-        intermediary: intermediary.address,
-      };
-
-      const paymentInfo: PaymentChainInfoStruct = {
-        chainId: n.chainId,
-        entrypoint: entrypointAddress,
-        paymentState: state,
-      };
-
-      const callData = nitroSCW.interface.encodeFunctionData("crossChain", [
-        [executeInfo],
-        [paymentInfo],
-      ]);
-
-      const userOp: UserOperationStruct = {
-        sender: await nitroSCW.getAddress(),
-        nonce: 0,
-        initCode: "0x",
-        callData,
-        callGasLimit: 500_000,
-        verificationGasLimit: 150000,
-        preVerificationGas: 21000,
-        maxFeePerGas: 40_000,
-        maxPriorityFeePerGas: 40_000,
-        paymasterAndData: hre.ethers.ZeroHash,
-        signature: hre.ethers.ZeroHash,
-      };
-
-      const { signature: ownerSig } = signUserOp(
-        userOp,
-        owner,
-        await entrypoint.getAddress(),
-        Number(n.chainId),
-      );
-      const { signature: intermediarySig } = signUserOp(
-        userOp,
-        intermediary,
-        await entrypoint.getAddress(),
-        Number(n.chainId),
-      );
-
-      // Cross chain execute requires that each userOp is signed by the owner and the intermediary on each chain
-      userOp.signature = ethers.concat([
-        ownerSig,
-        intermediarySig,
-        ownerSig,
-        intermediarySig,
-      ]);
-
-      // Submit the userOp to the entrypoint and wait for it to be mined.
-      const res = await entrypoint.handleOps([userOp], owner.address);
-      await res.wait();
-
-      // Check that the the status is now challenged
-      expect(await nitroSCW.getStatus()).to.equal(1);
-    });
 
     it("Should handle a challenge and reclaim", async function () {
       const { nitroSCW, owner, intermediary } = await deploySCBridgeWallet();
@@ -469,6 +377,101 @@ describe("SCBridgeWallet", function () {
         .getFunction("validateUserOp")
         .staticCall(userOp, hash, 0);
       expect(result).to.equal(0);
+    });
+  });
+
+  describe("crossChain", function () {
+    it("Should raise a challenge via crossChain call", async function () {
+      const { owner, intermediary, nitroSCW, entrypoint, entrypointAddress } =
+        await deploySCBridgeWallet();
+
+      const n = await ethers.provider.getNetwork();
+
+      const deployer = await hre.ethers.getContractFactory("SCBridgeWallet");
+
+      const payeeSCW = await deployer.deploy(
+        ethers.Wallet.createRandom(),
+        intermediary,
+        entrypoint,
+      );
+
+      const state: StateStruct = {
+        owner: owner.address,
+        intermediary: intermediary.address,
+        turnNum: 1,
+        intermediaryBalance: 0,
+        htlcs: [
+          {
+            amount: 0,
+            to: Participant.Intermediary,
+            hashLock: ethers.keccak256(ethers.toUtf8Bytes("secret")),
+            timelock: (await getBlockTimestamp()) + TIMELOCK_DELAY,
+          },
+        ],
+      };
+
+      const executeInfo: ExecuteChainInfoStruct = {
+        chainId: 0,
+        entrypoint: entrypointAddress,
+        dest: await payeeSCW.getAddress(),
+        value: ethers.parseEther("0.5"),
+        callData: "0x",
+        owner: owner.address,
+        intermediary: intermediary.address,
+      };
+
+      const paymentInfo: PaymentChainInfoStruct = {
+        chainId: n.chainId,
+        entrypoint: entrypointAddress,
+        paymentState: state,
+      };
+
+      const callData = nitroSCW.interface.encodeFunctionData("crossChain", [
+        [executeInfo],
+        [paymentInfo],
+      ]);
+
+      const userOp: UserOperationStruct = {
+        sender: await nitroSCW.getAddress(),
+        nonce: 0,
+        initCode: "0x",
+        callData,
+        callGasLimit: 500_000,
+        verificationGasLimit: 150000,
+        preVerificationGas: 21000,
+        maxFeePerGas: 40_000,
+        maxPriorityFeePerGas: 40_000,
+        paymasterAndData: hre.ethers.ZeroHash,
+        signature: hre.ethers.ZeroHash,
+      };
+
+      const { signature: ownerSig } = signUserOp(
+        userOp,
+        owner,
+        await entrypoint.getAddress(),
+        Number(n.chainId),
+      );
+      const { signature: intermediarySig } = signUserOp(
+        userOp,
+        intermediary,
+        await entrypoint.getAddress(),
+        Number(n.chainId),
+      );
+
+      // Cross chain execute requires that each userOp is signed by the owner and the intermediary on each chain
+      userOp.signature = ethers.concat([
+        ownerSig,
+        intermediarySig,
+        ownerSig,
+        intermediarySig,
+      ]);
+
+      // Submit the userOp to the entrypoint and wait for it to be mined.
+      const res = await entrypoint.handleOps([userOp], owner.address);
+      await res.wait();
+
+      // Check that the the status is now challenged
+      expect(await nitroSCW.getStatus()).to.equal(1);
     });
   });
 });
