@@ -46,3 +46,21 @@ function checkSignatures(
     revert("Invalid intermediary signature");
   }
 }
+
+/// Contains information to execute a function call
+struct ExecuteChainInfo {
+  uint chainId;
+  address entrypoint;
+  address dest;
+  uint value;
+  bytes callData;
+  address owner;
+  address intermediary;
+}
+
+/// Contains information to execute a payment
+struct PaymentChainInfo {
+  uint chainId;
+  address entrypoint;
+  State paymentState;
+}

@@ -1,11 +1,13 @@
 pragma solidity 0.8.19;
 
 // SPDX-License-Identifier: MIT
-
 import {IAccount} from "contracts/interfaces/IAccount.sol";
 import {UserOperation} from "contracts/interfaces/UserOperation.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {HTLC, State, hashState, checkSignatures, Participant} from "./state.sol";
+import {UserOperationLib} from "contracts/core/UserOperationLib.sol";
+import {ExecuteChainInfo, PaymentChainInfo} from "./state.sol";
+
 enum WalletStatus {
   OPEN,
   CHALLENGE_RAISED,
@@ -100,7 +102,10 @@ contract SCBridgeWallet is IAccount {
     bytes calldata intermediarySignature
   ) external {
     checkSignatures(state, ownerSignature, intermediarySignature);
+    internalChallenge(state);
+  }
 
+  function internalChallenge(State calldata state) internal {
     WalletStatus status = getStatus();
 
     require(status != WalletStatus.FINALIZED, "Wallet already finalized");
@@ -125,7 +130,26 @@ contract SCBridgeWallet is IAccount {
     challengeExpiry = largestTimeLock + CHALLENGE_WAIT;
   }
 
-  function execute(address dest, uint256 value, bytes calldata func) external {
+  /// crossChain is a special function that handles cross chain execution and payment
+  function crossChain(
+    ExecuteChainInfo[] calldata e,
+    PaymentChainInfo[] calldata p
+  ) public {
+    // Only the entrypoint should trigger this by excecuting a UserOp
+    require(msg.sender == entrypoint, "account: not EntryPoint");
+    for (uint i = 0; i < e.length; i++) {
+      if (e[i].chainId == block.chainid) {
+        execute(e[i].dest, e[i].value, e[i].callData);
+      }
+    }
+    for (uint i = 0; i < p.length; i++) {
+      if (p[i].chainId == block.chainid) {
+        internalChallenge(p[i].paymentState);
+      }
+    }
+  }
+
+  function execute(address dest, uint256 value, bytes calldata func) public {
     if (getStatus() == WalletStatus.FINALIZED && activeHTLCs.length == 0) {
       // If the wallet has finalized and all the funds have been reclaimed then the owner can do whatever they want with the remaining funds
       // The owner can call this function directly or the entrypoint can call it on their behalf
@@ -160,20 +184,26 @@ contract SCBridgeWallet is IAccount {
   ) external view returns (uint256 validationData) {
     bytes memory ownerSig = userOp.signature[0:65];
     // The owner of the wallet must always approve of any user operation to execute on it's behalf
-    require(
-      validateSignature(userOpHash, ownerSig, owner) ==
-        SIG_VALIDATION_SUCCEEDED,
-      "owner must sign"
-    );
+    if (
+      validateSignature(userOpHash, ownerSig, owner) != SIG_VALIDATION_SUCCEEDED
+    ) {
+      return SIG_VALIDATION_FAILED;
+    }
 
     // If the wallet is finalized then the owner can do whatever they want with the remaining funds
     if (getStatus() == WalletStatus.FINALIZED) {
       return SIG_VALIDATION_SUCCEEDED;
     }
 
+    bytes4 functionSelector = bytes4(userOp.callData[0:4]);
+
+    // If the function is crossChain, we use validate using the chainids and entrypoints from the calldata
+    if (functionSelector == this.crossChain.selector) {
+      validateCrossChain(userOp);
+    }
+
     // If the function is permitted, it can be called at any time
     // (including when the wallet is in CHALLENGE_RAISED) with no futher checks.
-    bytes4 functionSelector = bytes4(userOp.callData[0:4]);
     if (permitted(functionSelector)) return SIG_VALIDATION_SUCCEEDED;
 
     // If the wallet is open, we need to apply extra conditions:
@@ -193,6 +223,73 @@ contract SCBridgeWallet is IAccount {
 
   uint256 internal constant SIG_VALIDATION_SUCCEEDED = 0;
   uint256 internal constant SIG_VALIDATION_FAILED = 1;
+
+  /// This validates the crossChain UserOp
+  /// It ensures that it signed by the owner and intermediary on every chain
+  /// It also ensures that the UserOp targets the current chain and entrypoint
+  function validateCrossChain(UserOperation calldata userOp) private view {
+    (ExecuteChainInfo[] memory e, PaymentChainInfo[] memory p) = abi.decode(
+      userOp.callData[4:],
+      (ExecuteChainInfo[], PaymentChainInfo[])
+    );
+
+    bool foundExecute = false;
+    bool foundPayment = false;
+
+    // We expect every owner and intermediary on every chain to have signed the userOpHash
+    // For each chain we expect a signature from the owner and intermediary
+    require(
+      userOp.signature.length == (e.length + p.length) * 65 * 2,
+      "Invalid signature length"
+    );
+
+    for (uint i = 0; i < e.length; i++) {
+      if (e[i].chainId == block.chainid && e[i].entrypoint == entrypoint) {
+        foundExecute = true;
+      }
+
+      // TODO: I think we could just have everyone signed the UserOpHash for the first chain, instead of generating a new hash for each chain?
+      // Check that the owner and intermediary have signed the userOpHash on the execution chain
+      bytes32 userOpHash = generateUserOpHash(
+        userOp,
+        e[i].entrypoint,
+        e[i].chainId
+      );
+
+      uint offset = i * 65;
+      bytes memory ownerSig = userOp.signature[offset:offset + 65];
+      bytes memory intermediarySig = userOp.signature[offset + 65:offset + 130];
+      validateSignature(userOpHash, ownerSig, e[i].owner);
+      validateSignature(userOpHash, intermediarySig, e[i].intermediary);
+    }
+
+    for (uint i = 0; i < p.length; i++) {
+      if (p[i].chainId == block.chainid && p[i].entrypoint == entrypoint) {
+        foundPayment = true;
+      }
+
+      // Check that the owner and intermediary have signed the userOpHash on the payment chain
+      bytes32 userOpHash = generateUserOpHash(
+        userOp,
+        p[i].entrypoint,
+        p[i].chainId
+      );
+      uint offset = (e.length + i) * 65;
+      bytes memory ownerSig = userOp.signature[offset:offset + 65];
+      bytes memory intermediarySig = userOp.signature[offset + 65:offset + 130];
+      validateSignature(userOpHash, ownerSig, p[i].paymentState.owner);
+      validateSignature(
+        userOpHash,
+        intermediarySig,
+        p[i].paymentState.intermediary
+      );
+    }
+
+    require(
+      foundExecute || foundPayment,
+      "Must target execution or payment chain"
+    );
+  }
 
   function validateSignature(
     bytes32 userOpHash,
@@ -214,4 +311,14 @@ contract SCBridgeWallet is IAccount {
     }
     return true;
   }
+}
+using UserOperationLib for UserOperation;
+
+/// @dev Based on the entrypoint implementation
+function generateUserOpHash(
+  UserOperation calldata userOp,
+  address entrypoint,
+  uint chainId
+) pure returns (bytes32) {
+  return keccak256(abi.encode(userOp.hash(), entrypoint, chainId));
 }

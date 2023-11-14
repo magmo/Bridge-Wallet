@@ -13,6 +13,8 @@ import { time } from "@nomicfoundation/hardhat-network-helpers";
 import {
   type UserOperationStruct,
   type StateStruct,
+  type ExecuteChainInfoStruct,
+  type PaymentChainInfoStruct,
 } from "../typechain-types/contracts/SCBridgeWallet";
 import { Participant } from "../clients/StateChannelWallet";
 import { type Invoice, MessageType } from "../clients/Messages";
@@ -151,8 +153,6 @@ describe("SCBridgeWallet", function () {
       entrypoint,
     );
 
-    // Generate a random payee address that we can use for the transfer.
-
     // Encode calldata that calls the execute function to perform a simple transfer of ether to the payee.
     const callData = nitroSCW.interface.encodeFunctionData("execute", [
       await payeeSCW.getAddress(),
@@ -255,6 +255,99 @@ describe("SCBridgeWallet", function () {
 
       expect(await nitroSCW.getStatus()).to.equal(2);
     });
+    it("Should raise a challenge via crossChain call", async function () {
+      const { owner, intermediary, nitroSCW, entrypoint, entrypointAddress } =
+        await deploySCBridgeWallet();
+
+      const n = await ethers.provider.getNetwork();
+
+      const deployer = await hre.ethers.getContractFactory("SCBridgeWallet");
+
+      const payeeSCW = await deployer.deploy(
+        ethers.Wallet.createRandom(),
+        intermediary,
+        entrypoint,
+      );
+
+      const state: StateStruct = {
+        owner: owner.address,
+        intermediary: intermediary.address,
+        turnNum: 1,
+        intermediaryBalance: 0,
+        htlcs: [
+          {
+            amount: 0,
+            to: Participant.Intermediary,
+            hashLock: ethers.keccak256(ethers.toUtf8Bytes("secret")),
+            timelock: (await getBlockTimestamp()) + TIMELOCK_DELAY,
+          },
+        ],
+      };
+
+      const executeInfo: ExecuteChainInfoStruct = {
+        chainId: 0,
+        entrypoint: entrypointAddress,
+        dest: await payeeSCW.getAddress(),
+        value: ethers.parseEther("0.5"),
+        callData: "0x",
+        owner: owner.address,
+        intermediary: intermediary.address,
+      };
+
+      const paymentInfo: PaymentChainInfoStruct = {
+        chainId: n.chainId,
+        entrypoint: entrypointAddress,
+        paymentState: state,
+      };
+
+      const callData = nitroSCW.interface.encodeFunctionData("crossChain", [
+        [executeInfo],
+        [paymentInfo],
+      ]);
+
+      const userOp: UserOperationStruct = {
+        sender: await nitroSCW.getAddress(),
+        nonce: 0,
+        initCode: "0x",
+        callData,
+        callGasLimit: 500_000,
+        verificationGasLimit: 150000,
+        preVerificationGas: 21000,
+        maxFeePerGas: 40_000,
+        maxPriorityFeePerGas: 40_000,
+        paymasterAndData: hre.ethers.ZeroHash,
+        signature: hre.ethers.ZeroHash,
+      };
+
+      const { signature: ownerSig } = signUserOp(
+        userOp,
+        owner,
+        await entrypoint.getAddress(),
+        Number(n.chainId),
+      );
+      const { signature: intermediarySig } = signUserOp(
+        userOp,
+        intermediary,
+        await entrypoint.getAddress(),
+        Number(n.chainId),
+      );
+
+      // Cross chain execute requires that each userOp is signed by the owner and the intermediary on each chain
+      userOp.signature = ethers.concat([
+        ownerSig,
+        intermediarySig,
+        ownerSig,
+        intermediarySig,
+      ]);
+
+      // Submit the userOp to the entrypoint and wait for it to be mined.
+      const res = await entrypoint.handleOps([userOp], owner.address);
+      await res.wait();
+
+      // Check that the the status is now challenged
+      expect(await nitroSCW.getStatus()).to.equal(1);
+    });
+
     it("Should handle a challenge and reclaim", async function () {
       const { nitroSCW, owner, intermediary } = await deploySCBridgeWallet();
       const secret = ethers.toUtf8Bytes(
@@ -300,7 +393,8 @@ describe("SCBridgeWallet", function () {
 
   describe("validateUserOp", function () {
     it("Should return success if the userOp is signed by the owner and the intermediary", async function () {
-      const { nitroSCW, owner, intermediary } = await deploySCBridgeWallet();
+      const { nitroSCW, owner, intermediary, entrypointAddress } =
+        await deploySCBridgeWallet();
       const n = await ethers.provider.getNetwork();
       const userOp: UserOperationStruct = {
         sender: owner.address,
@@ -319,16 +413,16 @@ describe("SCBridgeWallet", function () {
       const { signature: ownerSig } = signUserOp(
         userOp,
         owner,
-        ethers.ZeroAddress,
+        entrypointAddress,
         Number(n.chainId),
       );
       const { signature: intermediarySig } = signUserOp(
         userOp,
         intermediary,
-        ethers.ZeroAddress,
+        entrypointAddress,
         Number(n.chainId),
       );
-      const hash = getUserOpHash(userOp, ethers.ZeroAddress, Number(n.chainId));
+      const hash = getUserOpHash(userOp, entrypointAddress, Number(n.chainId));
 
       userOp.signature = ethers.concat([ownerSig, intermediarySig]);
 
@@ -339,7 +433,8 @@ describe("SCBridgeWallet", function () {
       expect(result).to.equal(0);
     });
     it("allows specific functions to be called when signed by one actor", async function () {
-      const { nitroSCW, owner } = await deploySCBridgeWallet();
+      const { nitroSCW, owner, entrypointAddress } =
+        await deploySCBridgeWallet();
       const n = await ethers.provider.getNetwork();
 
       const userOp: UserOperationStruct = {
@@ -362,11 +457,11 @@ describe("SCBridgeWallet", function () {
       const { signature: ownerSig } = signUserOp(
         userOp,
         owner,
-        ethers.ZeroAddress,
+        entrypointAddress,
         Number(n.chainId),
       );
 
-      const hash = getUserOpHash(userOp, ethers.ZeroAddress, Number(n.chainId));
+      const hash = getUserOpHash(userOp, entrypointAddress, Number(n.chainId));
       userOp.signature = ethers.zeroPadBytes(ownerSig, 130);
 
       // staticCall forces an eth_call, allowing us to easily check the result
