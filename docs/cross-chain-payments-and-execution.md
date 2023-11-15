@@ -69,3 +69,11 @@ With cross-chain execution and payments we need a slightly more complicated chec
 We expect the UserOp to be signed by the `owner` and `intermediary` of every BridgeWallet involved. So based on the example above with Alice,Irene,Bob, we'd expect the signatures `[AliceSigChainA,IreneSigChainA,IreneSigChainB,BobSigChainB]`.
 
 When validating signatures we iterate through the `ExecuteChainInfo` and `PaymentChainInfo` and check the signatures against the hash generated using the chain id/entrypoint from the ChainInfo. It's important that we validate the signature for other chains, because that guarantees the UserOp is "atomic". Otherwise a partially signed UserOp could be redeemed on one chain, while not being redeemable on the other chain.
+
+# Nonces
+
+**NOTE:** This hasn't been done in the test yet.
+
+We need to be careful with how we use nonces. The `owner` of a BridgeWallet can always submit a UserOp to [trigger a](https://github.com/magmo/Bridge-Wallet/blob/66dbb9c41ea8830218265b4def76824320df6bca/contracts/SCBridgeWallet.sol#L207) `Challenge` or `Reclaim` call. So if we have a UserOp signed by everyone with some `nonce`, the `owner` could submit a UserOp just signed by them burning the nonce, and preventing the UserOp signed by everyone from being handled.
+
+Luckily ERC 4337 provides "Semi-abstracted Nonce Support" where the first 192 bits of the nonce are treated as a `key` and the last 64 bits are the `sequence`. This means we can use a separate nonce for calls to `crossChain`, preventing the `owner` from burning the nonce and preventing the `crossChain` call.
