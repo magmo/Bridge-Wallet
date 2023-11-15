@@ -107,10 +107,10 @@ contract SCBridgeWallet is IAccount {
     bytes calldata intermediarySignature
   ) external {
     checkSignatures(state, ownerSignature, intermediarySignature);
-    internalChallenge(state);
+    _challenge(state);
   }
 
-  function internalChallenge(State calldata state) internal {
+  function _challenge(State calldata state) internal {
     WalletStatus status = getStatus();
 
     require(status != WalletStatus.FINALIZED, "Wallet already finalized");
@@ -149,7 +149,7 @@ contract SCBridgeWallet is IAccount {
     }
     for (uint i = 0; i < p.length; i++) {
       if (p[i].chainId == block.chainid) {
-        internalChallenge(p[i].paymentState);
+        _challenge(p[i].paymentState);
       }
     }
   }
