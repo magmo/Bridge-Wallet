@@ -10,7 +10,7 @@ Since we can specify the UserOp calldata, we can include whatever additional sta
 
 We embed payment information in the UserOp using a `PaymentChainInfo`
 
-```sol
+```solidity
 /// Contains information to execute a payment
 struct PaymentChainInfo {
   uint chainId;
@@ -37,7 +37,7 @@ We can also extend this idea to cross chain execution. Instead of embedding a pa
 
 We embed this information using a `ExecuteChainInfo`
 
-```sol
+```solidity
 /// Contains information to execute a function call
 struct ExecuteChainInfo {
   uint chainId;
