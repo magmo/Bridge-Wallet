@@ -1,6 +1,6 @@
 ## Cross chain payments and execution
 
-This document suggests an approach of using `UserOp`s to perform cross-chain payments and execution. At a very high level this approach can be thought of as a cross-chain state channel, where we have some state, that when fully signed can be submitted to an adjudicator contract to claim the funds based on the outcome of that state.
+This document suggests an approach of using `UserOp`s to perform cross-chain payments and execution. At a very high level this approach can be thought of as a cross-chain state channel, where we have some state, that when fully signed can be submitted to one of many adjudicator contracts (each on a different chain) to claim the funds on that chain based on the outcome of that state.
 
 However instead of implementing the state channel framework ourselves, we're making use of some of ERC 4337 infrastructure. Instead of signing a state, participants sign a **UserOp** that contains the state information. Instead of having a specific "adjudicator" contract, we have the **entrypoint** and the **BridgeWallet SCW** to handle adjudicating funds. Instead of making a on-chain call to challenge on the adjudicator, we can submit the `UserOp` to an entrypoint to trigger a challenge.
 
@@ -20,11 +20,11 @@ struct PaymentChainInfo {
 
 ```
 
-Whenever a fully signed UserOp containing a `PaymentChainInfo` is submitted to chain, it forces a challenge on that chain. This means that once you have a fully signed UserOp you know you can always use it to get your funds via challenge. In the happy path, we would expect participants to just exchange signed states afterwards, so they can discard the UserOp.
+Whenever a fully signed UserOp containing a `PaymentChainInfo` is submitted to chain, it forces a challenge on that chain. This means that once you have a fully signed UserOp you know you can always use it to get your funds via challenge. In the happy path, the `UserOp` need never be submitted on chain -- we would expect participants to gather signatures on the `UserOp` off chain, and then to progress their off chain state to absorb the effects of the `UserOp`. They can then discard the UserOp.
 
 ## Cross-chain Payment Example
 
-Let's say we have Alice, Bob,and Irene. Alice and Irene have a BridgeWallet on chain A, Bob and Irene have a BridgeWallet on Chain B. Alice and Irene have both signed a state with a balance of `[A:5,I:5]`, and bob and Irene have likewise have a signed state with a balance of`[B:5,I:5]`. Let's say Alice wants to pay Bob.
+Let's say we have Alice, Bob,and Irene. Alice has a BridgeWallet on chain A with Irene as the intermediary and Bob has a BridgeWallet on Chain B also with Irene as the intermediary. Alice and Irene have both signed a state with a balance of `[A:5,I:5]`, and bob and Irene have likewise have a signed state with a balance of`[B:5,I:5]`. Let's say Alice wants to pay Bob.
 
 1. Alice creates two new unsigned states `[A:4,I:6]` and `[B:6,I:4]`
 2. Alice includes them in a UserOp(wrapped in a `PaymentChainInfo`), and signs the UserOp. She sends this to Bob and Irene.
@@ -50,7 +50,7 @@ struct ExecuteChainInfo {
 }
 ```
 
-A UserOp can contain multiple `ExecuteChainInfo`s, meaning you can have "atomic" cross chain execution (once the UserOp is fully signed, you're guaranteed you can trigger the execution on either chain). A UserOp can also contain `PaymentChainInfo`s and `ExecuteChainInfos` allowing to pay for cross-chain execution.
+A UserOp can contain multiple `ExecuteChainInfo`s, meaning you can have "atomic" cross chain execution (once the UserOp is fully signed, you're guaranteed you can trigger the execution on either chain). A UserOp can also contain `PaymentChainInfo`s and `ExecuteChainInfos` allowing for paid cross-chain execution.
 
 # Multihop
 
@@ -62,7 +62,7 @@ It's important that we're not vulnerable to replay attacks, where a `UserOp` is 
 
 If we're working on one chain, it's fairly easy to prevent replay attacks. The `userOpHash` [provided by the Entrypoint](https://github.com/magmo/Bridge-Wallet/blob/ad6d24fa2435f449751d1b61e24d12faff1f83a9/contracts/core/EntryPoint.sol#L298) to `validateUserOp` is hashed against the current chain and entrypoint. This means that if the UserOp is run against a different chain or entrypoint, there will be a different `userOpHash` causing all the signature checks to fail.
 
-With cross-chain execution and payments we need a slightly more complicated check. To prevent replay attacks we ensure that one of the `ExecuteChainInfo` or `PaymentChainInfo` matches our chainId and entrypoint. This ensures that the `UserOp` will only be handled by the chain/entrypoint specified by the `ExecuteChainInfo/PaymentChainInfo`.
+With cross-chain execution and payments we need a slightly more complicated check. To prevent replay attacks we ensure that at least one of the `ExecuteChainInfo` or `PaymentChainInfo` contains the network's chainId and entrypoint. This ensures that the `UserOp` will only be handled by the chain/entrypoint specified by the `ExecuteChainInfo/PaymentChainInfo`.
 
 # Signatures
 

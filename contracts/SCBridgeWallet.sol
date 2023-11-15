@@ -203,7 +203,7 @@ contract SCBridgeWallet is IAccount {
     bytes4 functionSelector = bytes4(userOp.callData[0:4]);
     NonceKey key = NonceKey(userOp.nonce >> 64);
 
-    // If the function is crossChain, we use validate using the chainids and entrypoints from the calldata
+    // If the function is crossChain, we validate using the chainids and entrypoints from the calldata
     if (
       functionSelector == this.crossChain.selector && key == NonceKey.SHARED
     ) {
