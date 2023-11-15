@@ -14,6 +14,11 @@ enum WalletStatus {
   FINALIZED
 }
 
+enum NonceKey {
+  SHARED,
+  OWNER
+}
+
 uint constant CHALLENGE_WAIT = 1 days;
 
 contract SCBridgeWallet is IAccount {
@@ -196,18 +201,22 @@ contract SCBridgeWallet is IAccount {
     }
 
     bytes4 functionSelector = bytes4(userOp.callData[0:4]);
+    NonceKey key = NonceKey(userOp.nonce >> 64);
 
     // If the function is crossChain, we use validate using the chainids and entrypoints from the calldata
-    if (functionSelector == this.crossChain.selector) {
+    if (
+      functionSelector == this.crossChain.selector && key == NonceKey.SHARED
+    ) {
       validateCrossChain(userOp);
     }
 
     // If the function is permitted, it can be called at any time
     // (including when the wallet is in CHALLENGE_RAISED) with no futher checks.
-    if (permitted(functionSelector)) return SIG_VALIDATION_SUCCEEDED;
+    if (permitted(functionSelector) && key == NonceKey.OWNER)
+      return SIG_VALIDATION_SUCCEEDED;
 
     // If the wallet is open, we need to apply extra conditions:
-    if (getStatus() == WalletStatus.OPEN) {
+    if (getStatus() == WalletStatus.OPEN && key == NonceKey.SHARED) {
       bytes memory intermediarySig = userOp.signature[65:130];
       return validateSignature(userOpHash, intermediarySig, intermediary);
     }

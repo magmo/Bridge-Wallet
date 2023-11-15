@@ -347,7 +347,7 @@ describe("SCBridgeWallet", function () {
 
       const userOp: UserOperationStruct = {
         sender: owner.address,
-        nonce: 0,
+        nonce: BigInt(1) << BigInt(64),
         initCode: hre.ethers.ZeroHash,
         callData:
           SCBridgeWallet__factory.createInterface().encodeFunctionData(
