@@ -66,9 +66,9 @@ With cross-chain execution and payments we need a slightly more complicated chec
 
 # Signatures
 
-We expect the UserOp to be signed by the `owner` and `intermediary` of every BridgeWallet involved. So based on the example above with Alice,Irene,Bob, we'd expect the signatures `[AliceSigChainA,IreneSigChainA,IreneSigChainB,BobSigChainB]`.
+We expect the UserOp to be signed by the `owner` and `intermediary` of every BridgeWallet involved. So based on the example above with Alice,Irene,Bob, we'd expect the signatures `[AliceSig,IreneSig,IreneSig,BobSig]`. NOTE: This could also be optimized to remove duplicate signatures, but including duplicates keeps things simple and flexible.
 
-When validating signatures we iterate through the `ExecuteChainInfo` and `PaymentChainInfo` and check the signatures against the hash generated using the chain id/entrypoint from the ChainInfo. It's important that we validate the signature for other chains, because that guarantees the UserOp is "atomic". Otherwise a partially signed UserOp could be redeemed on one chain, while not being redeemable on the other chain.
+When validating signatures we iterate through the `ExecuteChainInfo` and `PaymentChainInfo` and check the signatures against the hash generated using the **first chain id and entrypoint**. This means all participants are signing the same `UserOpHash`. This is safe to do since the we validate the current chain and entrypoint against the `ExecuteChainInfo`s and `PaymentChainInfo`s in the callData.
 
 # Nonces
 

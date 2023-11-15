@@ -251,19 +251,19 @@ contract SCBridgeWallet is IAccount {
       userOp.signature.length == (e.length + p.length) * 65 * 2,
       "Invalid signature length"
     );
+    // We expect every participant to sign the UserOpHash generated against the first entrypoint and chainId
+    bytes32 userOpHash;
+    require(e.length + p.length > 0, "Must target at least one chain");
+    if (e.length > 0) {
+      userOpHash = generateUserOpHash(userOp, e[0].entrypoint, e[0].chainId);
+    } else {
+      userOpHash = generateUserOpHash(userOp, p[0].entrypoint, p[0].chainId);
+    }
 
     for (uint i = 0; i < e.length; i++) {
       if (e[i].chainId == block.chainid && e[i].entrypoint == entrypoint) {
         foundExecute = true;
       }
-
-      // TODO: I think we could just have everyone signed the UserOpHash for the first chain, instead of generating a new hash for each chain?
-      // Check that the owner and intermediary have signed the userOpHash on the execution chain
-      bytes32 userOpHash = generateUserOpHash(
-        userOp,
-        e[i].entrypoint,
-        e[i].chainId
-      );
 
       uint offset = i * 65;
       bytes memory ownerSig = userOp.signature[offset:offset + 65];
@@ -277,12 +277,6 @@ contract SCBridgeWallet is IAccount {
         foundPayment = true;
       }
 
-      // Check that the owner and intermediary have signed the userOpHash on the payment chain
-      bytes32 userOpHash = generateUserOpHash(
-        userOp,
-        p[i].entrypoint,
-        p[i].chainId
-      );
       uint offset = (e.length + i) * 65;
       bytes memory ownerSig = userOp.signature[offset:offset + 65];
       bytes memory intermediarySig = userOp.signature[offset + 65:offset + 130];
