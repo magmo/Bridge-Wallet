@@ -24,7 +24,7 @@ Whenever a fully signed UserOp containing a `PaymentChainInfo` is submitted to a
 
 ## Cross-chain Payment Example
 
-Let's say we have Alice, Bob,and Irene. Alice has a BridgeWallet on chain A with Irene as the intermediary and Bob has a BridgeWallet on Chain B also with Irene as the intermediary. Alice and Irene have both signed a state with a balance of `[A:5,I:5]`, and bob and Irene have likewise have a signed state with a balance of`[B:5,I:5]`. Let's say Alice wants to pay Bob.
+Let's say we have Alice, Bob, and Irene. Alice has a BridgeWallet on chain A with Irene as the intermediary and Bob has a BridgeWallet on Chain B also with Irene as the intermediary. Alice and Irene have both signed a state with a balance of `[A:5,I:5]`, and bob and Irene have likewise have a signed state with a balance of`[B:5,I:5]`. Let's say Alice wants to pay Bob.
 
 1. Alice creates two new unsigned states `[A:4,I:6]` and `[B:6,I:4]`
 2. Alice includes them in a UserOp, and signs the UserOp. She sends this to Bob and Irene.
