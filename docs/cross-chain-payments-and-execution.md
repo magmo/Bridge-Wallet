@@ -56,6 +56,53 @@ A UserOp can contain multiple `ExecuteChainInfo`s, meaning you can have "atomic"
 
 Since a UserOp can contain multiple `PaymentChainInfo`s and `ExecuteChainInfos`, this approach can be used for multi-hop execution or payments. We just require the `owner` and `intermediary` of every BridgeWallet involved to sign the UserOp.
 
+## Example with 2 hops
+Alice has funds on chainA (blue) with intermediary Irene. Irene has funds on chainB (green) with intermediary Isaac. Isaac has funds on chainC (red).
+
+Alice wants to execute a transaction on chainC. She crafts the transaction but does not yet sign it. Instead, she routes it to Irene, who appends a payment for herself in the Alice-Irene wallet on chainA. Irene forwards it to Isaac, who appends a payment for himself on the Irene-Isaac wallet on chainB. This completes the chain. Isaac combines the two payments and the transaction into a `UserOp`. This is then countersigned by everyone, forming `UserOp*`. The operation is not valid unless it is completely countersigned. 
+
+Now each party has an effect they want to happen. Isaac wants his payment from Irene. Irene wants her payment from Alice. Alice wants her Tx to be launched on chainC. Each party can force that through by submitting `UserOp*` to the relevant chain (which will cause the relevant wallet to check all the signatures, and slice into the relevant payment to check the chain id).
+
+As an optimization, the payments can be completed off chain so that the `UserOp*` is never actually submitted anywhere save for the (final) target chain. It can then be discarded. If any party refuses or fails to perform the offchain accounting, their counterparty can eject from the wallet and forcibly extract the payment due to them. 
+
+<!--
+fontawesome f182 Alice #1da1f2
+fontawesome f233 Irene
+fontawesome f0c1 chainB #darkgreen
+fontawesome f0b0 bundlerB #darkgreen
+fontawesome f233 Isaac
+fontawesome f0b0 bundlerC #red
+fontawesome f0c1 chainC #red
+
+Alice->Irene: <color:#red>Tx</color> & <color:#1da1f2>payment for Irene</color>
+Irene->Isaac: userOp = <color:#red>Tx</color> & <color:#1da1f2>payment for Irene</color> & <color:#darkgreen>payment for Isaac</color>
+
+box over Alice,Isaac: everyone signs: userOp => userOp*. Anyone can submit to any chain.
+
+Alice->bundlerC: userOp*
+bundlerC->chainC: userOp*
+
+note over chainC: JIT deployment of Alice's Wallet\n funds supplied by Isaac
+
+group happy case
+parallel on
+Alice<->Irene: <color:#1da1f2>update offchain balances</color>
+Irene<->Isaac: <color:#green>update offchain balances</color>
+parallel off
+
+box over Alice,Isaac: everyone discards userOp*
+end
+
+group unhappy case
+box over Irene: refuses to <color:#darkgreen>update offchain balance</color>
+Isaac->bundlerB: userOp*
+bundlerB->chainB: userOp*
+chainB->Isaac: ejected from Irene fairly
+note right of Isaac: forcefully claimed <color:#darkgreen>payment</color>
+end
+-->
+![](./2-hop-rpc.png)
+
 # Replay Attacks
 
 It's important that we're not vulnerable to replay attacks, where a `UserOp` is submitted again using a different entrypoint or chain.
