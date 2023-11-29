@@ -2,7 +2,7 @@
 
 This document suggests an approach of using `UserOp`s to perform cross-chain payments and execution. At a very high level this approach can be thought of as a cross-chain state channel, where we have some state, that when fully signed can be submitted to one of many adjudicator contracts (each on a different chain) to claim the funds on that chain based on the outcome of that state.
 
-However instead of implementing the state channel framework ourselves, we're making use of some of ERC 4337 infrastructure. Instead of signing a state, participants sign a **UserOp** that contains the state information. Instead of having a specific "adjudicator" contract, we have the **entrypoint** and the **BridgeWallet SCW** to handle adjudicating funds. Instead of making a on-chain call to challenge on the adjudicator, we can submit the `UserOp` to an entrypoint to trigger a challenge.
+However instead of implementing the state channel framework ourselves, we're making use of some of [ERC 4337](https://eips.ethereum.org/EIPS/eip-4337) infrastructure. Instead of signing a state, participants sign a **UserOp** that contains the state information. Instead of having a specific "adjudicator" contract, we have the **entrypoint** and the **BridgeWallet SCW** to handle adjudicating funds. Instead of making a on-chain call to challenge on the adjudicator, we can submit the `UserOp` to an entrypoint to trigger a challenge.
 
 Since we can specify the UserOp calldata, we can include whatever additional state information we want in that calldata. That lets us embed payment or execution information for different chains in one UserOp. When submitted to chain the UserOp will behave depending on the chain Id and the embedded payment or execution information.
 
