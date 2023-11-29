@@ -4,23 +4,23 @@ This document suggests an approach of using `UserOp`s to perform cross-chain pay
 
 However instead of implementing the state channel framework ourselves, we're making use of some of [ERC 4337](https://eips.ethereum.org/EIPS/eip-4337) infrastructure. Instead of signing a state, participants sign a **UserOp** that contains the state information. Instead of having a specific "adjudicator" contract, we have the **entrypoint** and the **BridgeWallet SCW** to handle adjudicating funds. Instead of making a on-chain call to challenge on the adjudicator, we can submit the `UserOp` to an entrypoint to trigger a challenge.
 
-Since we can specify the UserOp calldata, we can include whatever additional state information we want in that calldata. That lets us embed payment or execution information for different chains in one UserOp. When submitted to chain the UserOp will behave depending on the chain Id and the embedded payment or execution information.
+Since we can specify the `UserOp.calldata`, we can include whatever additional state information we want in that calldata. That lets us embed payment or execution information for different chains in one `UserOp`. When submitted to chain the behavior of the `UserOp` will depend on the chain Id and the embedded payment or execution information.
 
 # Payments
 
-We embed payment information in the UserOp using a `PaymentChainInfo`
+We embed payment information in the `UserOp` using a `PaymentChainInfo`
 
 ```solidity
-/// Contains information to execute a payment
+// Contains information to execute a payment
 struct PaymentChainInfo {
   uint chainId;
   address entrypoint;
   State paymentState;
 }
-
 ```
 
-Whenever a fully signed UserOp containing a `PaymentChainInfo` is submitted to chain, it forces a challenge on that chain. This means that once you have a fully signed UserOp you know you can always use it to get your funds via challenge. In the happy path, the `UserOp` need never be submitted on chain -- we would expect participants to gather signatures on the `UserOp` off chain, and then to progress their off chain state to absorb the effects of the `UserOp`. They can then discard the UserOp.
+
+Whenever a fully signed UserOp containing a `PaymentChainInfo` is submitted to a chain, it forces a challenge on that chain if the `chainId` matches. This means that once you have a fully signed UserOp you know you can always use it to get your funds via challenge. In the happy path, the `UserOp` need never be submitted on chain -- we would expect participants to gather signatures on the `UserOp` off chain, and then to progress their off chain state to absorb the effects of the `UserOp`. They can then discard the UserOp.
 
 ## Cross-chain Payment Example
 
